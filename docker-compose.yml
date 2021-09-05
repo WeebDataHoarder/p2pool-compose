@@ -1,0 +1,59 @@
+version: "3"
+networks:
+  monero-pool:
+    external: false
+
+
+volumes:
+  monero:
+    external: false
+  p2pool:
+    external: false
+
+services:
+  p2pool:
+    build:
+      context: docker/p2pool
+      dockerfile: Dockerfile
+      args:
+        ref: origin/master
+    restart: always
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - monero-pool
+    depends_on:
+      - monero
+    volumes:
+      - p2pool:/p2pool/data:rw
+      - "${HUGEPAGES_MOUNT}:/dev/hugepages:rw"
+    ports:
+      - "${P2POOL_STRATUM_PORT}:${P2POOL_STRATUM_PORT}"
+      - "${P2POOL_P2P_PORT}:${P2POOL_P2P_PORT}"
+    command: >-
+      --wallet "${P2POOL_WALLET_ADDRESS}"
+      --stratum "0.0.0.0:${P2POOL_STRATUM_PORT}" --p2p "0.0.0.0:${P2POOL_P2P_PORT}"
+      --addpeers "${P2POOL_SEED_PEERS}"
+      --loglevel "${P2POOL_LOG_LEVEL}"
+  monero:
+    build:
+      context: docker/monero
+      dockerfile: Dockerfile
+      args:
+        ref: 8fde011dbeb56ab92a909710567b964186671247
+    restart: always
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run/monero
+    networks:
+      - monero-pool
+    volumes:
+      - monero:/var/monero:rw
+      - "${HUGEPAGES_MOUNT}:/dev/hugepages:rw"
+    ports:
+      - "18080:18080"
+    command: >-
+      --p2p-external-port "${MONERO_EXTERNAL_P2P_PORT}"
