@@ -1,6 +1,6 @@
 # Monero p2pool docker-compose
 
-This is an easy to setup installation of Monero's [p2pool](https://github.com/SChernykh/p2pool)
+This is an easy to setup installation of Monero's [p2pool](https://github.com/SChernykh/p2pool), a decentralized pool for Monero mining.
 
 ## Requirements
 * docker / podman
@@ -36,6 +36,8 @@ This is an easy to setup installation of Monero's [p2pool](https://github.com/SC
 * _monerod_ has higher connection defaults and several presets to have quicker and larger reach when receiving and broadcasting new blocks.
 * _monerod_ has a custom patch applied for the special RPC and ZMQ methods p2pool requires. After [PR#7891](https://github.com/monero-project/monero/pull/7891) is merged, this patch won't be necessary. 
 * _p2pool_ stratum port is by default 3333. You can change this on _.env_, and can also point xmrig-proxy or similar to this port.
+* _p2pool_ will wait until _monerod_ is running and fully synchronized before starting.
+* Everything restarts by default
 
 ## TODO
 * logrotate for p2pool
@@ -44,5 +46,5 @@ This is an easy to setup installation of Monero's [p2pool](https://github.com/SC
 ## Contribution
 * There is no dev fee. p2pool has no infrastructure. Send donations if you like, or don't.
 * Feel free to send (or mine!) a tip to the following address
-  * ```4AeEwC2Uik2Zv4uooAUWjQb2ZvcLDBmLXN4rzSn3wjBoY8EKfNkSUqeg5PxcnWTwB1b2V39PDwU9gaNE5SnxSQPYQyoQtr7```
-* Also donate to [p2pool original author](https://github.com/SChernykh/p2pool#donations) 
+```4AeEwC2Uik2Zv4uooAUWjQb2ZvcLDBmLXN4rzSn3wjBoY8EKfNkSUqeg5PxcnWTwB1b2V39PDwU9gaNE5SnxSQPYQyoQtr7```
+* Also donate to [p2pool's original author](https://github.com/SChernykh/p2pool#donations). 
