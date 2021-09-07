@@ -38,6 +38,7 @@ This is an easy to setup installation of Monero's [p2pool](https://github.com/SC
 * _p2pool_ stratum port is by default 3333. You can change this on _.env_, and can also point xmrig-proxy or similar to this port.
 * _p2pool_ will wait until _monerod_ is running and fully synchronized before starting.
 * Everything restarts by default
+* If you have other questions, feel free to reach _DataHoarder_ over IRC `#monero-pow @ irc.libera.chat`
 
 ## TODO
 * logrotate for p2pool
