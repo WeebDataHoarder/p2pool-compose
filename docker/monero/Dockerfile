@@ -61,7 +61,7 @@ RUN set -ex \
     && echo "${OPENSSL_HASH}  openssl-${OPENSSL_VERSION}.tar.gz" | sha256sum -c \
     && tar -xzf openssl-${OPENSSL_VERSION}.tar.gz \
     && cd openssl-${OPENSSL_VERSION} \
-    && ./Configure linux-x86_64 no-shared --static "$CFLAGS" \
+    && ./Configure no-shared --static "$CFLAGS" \
     && make build_generated -j$(nproc) \
     && make libcrypto.a -j$(nproc) \
     && make install
