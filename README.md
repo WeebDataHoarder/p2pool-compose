@@ -22,6 +22,7 @@ This is an easy to setup installation of Monero's [p2pool](https://github.com/SC
   * `$ cp .env.example .env`
 * Change _.env_ values to fit your needs. This is the main configuration.
   * You don't need to change everything, but at least, you SHOULD change `P2POOL_WALLET_ADDRESS`.
+    * You should probably create a wallet for this. This address is exposed to p2pool peers (although later pruned)
   * You can override further by using `docker-compose.override.yml`.
 * Build and start the services via _docker-compose_
   * `$ docker-compose up -d --build` (this will take a while to compile)
