@@ -18,6 +18,8 @@ services:
       args:
         ref: origin/master
     restart: always
+    tty: true
+    stdin_open: true
     read_only: true
     security_opt:
       - no-new-privileges:true
