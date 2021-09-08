@@ -176,7 +176,7 @@ RUN git clone --recursive https://github.com/monero-project/monero /src && \
 RUN mkdir build && cd build && \
     CFLAGS="-march=native -mtune=native -Ofast" CXXFLAGS="-march=native -mtune=native -Ofast" \
     cmake .. -D BUILD_DOCUMENTATION=OFF -D BUILD_DEBUG_UTILITIES=OFF -D BUILD_TESTS=OFF -D BUILD_GUI_DEPS=OFF \
-    -D STATIC=ON -D ARCH="x86-64" -D BUILD_64=ON -D CMAKE_BUILD_TYPE=release -D BUILD_TAG="linux-x64" && \
+    -D STATIC=ON -D ARCH="native" -D CMAKE_BUILD_TYPE=release && \
     cmake --build . --target daemon -- -j$(nproc)
 
 

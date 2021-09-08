@@ -12,7 +12,7 @@ This is an easy to setup installation of Monero's [p2pool](https://github.com/SC
 * At least 48 GiB of free space for pruned Monero and p2pool chain data.
   * _monero_ runs in pruned mode, but that's still about 38-39 GiB at the time of writing.
   * _p2pool_ uses 500 MiB at this point in time, could use more.
-* x86_64 system (easy to fix, see Monero Dockerfile)
+* x86_64 or AArch64 system (probably works on others, untested)
 * About 4 GiB of RAM. Haven't tested below this, but should help during sync. A bit more works better. 
 
 ## How to
