@@ -170,7 +170,7 @@ ARG ref=origin/master
 
 RUN git clone --recursive https://github.com/monero-project/monero /src && \
     git reset --hard ${ref} && \
-    curl https://github.com/SChernykh/monero/commit/b07b4e25d1cdfa1fa161830503544c661dab73f2.patch | git -c user.email="bogus@example.com" -c user.name="bogus" am && \
+    curl https://github.com/SChernykh/monero/commit/36f7c67f43b3cc52582a45c93f8e6e1a4f54d6c0.patch | git -c user.email="bogus@example.com" -c user.name="bogus" am && \
     git submodule sync && git submodule update --init --force --recursive
 
 RUN mkdir build && cd build && \
