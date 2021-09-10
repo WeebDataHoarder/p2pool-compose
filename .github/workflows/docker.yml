@@ -1,0 +1,26 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  docker:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup Docker
+        uses: docker-practice/actions-setup-docker@master
+      - name: Configure .env
+        run: cp .env.example .env
+      - name: Build the Docker p2pool image
+        run: docker-compose build p2pool
+      - name: Build the Docker monero image
+        run: docker-compose build monero
