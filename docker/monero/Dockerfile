@@ -177,7 +177,7 @@ RUN mkdir build && cd build && \
     CFLAGS="-march=native -mtune=native -Ofast" CXXFLAGS="-march=native -mtune=native -Ofast" \
     cmake .. -D BUILD_DOCUMENTATION=OFF -D BUILD_DEBUG_UTILITIES=OFF -D BUILD_TESTS=OFF -D BUILD_GUI_DEPS=OFF \
     -D STATIC=ON -D ARCH="native" -D CMAKE_BUILD_TYPE=release && \
-    cmake --build . --target daemon -- -j$(nproc)
+    cmake --build . --target daemon -- -j2
 
 
 FROM debian:bullseye-slim
