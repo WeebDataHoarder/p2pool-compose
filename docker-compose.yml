@@ -1,8 +1,7 @@
-version: "3"
+version: "2.2"
 networks:
   monero-pool:
     external: false
-
 
 volumes:
   monero:
@@ -16,6 +15,7 @@ services:
       context: docker/p2pool
       dockerfile: Dockerfile
       args:
+        repo: https://github.com/SChernykh/p2pool
         ref: origin/master
     restart: always
     tty: true

@@ -5,8 +5,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt update && \
     git build-essential cmake libuv1-dev libzmq3-dev libsodium-dev libpgm-dev libnorm-dev libgss-dev
 
 ARG ref=origin/master
+ARG repo=https://github.com/SChernykh/p2pool
 
-RUN git clone --recursive https://github.com/SChernykh/p2pool /src/p2pool && \
+RUN git clone --recursive ${repo} /src/p2pool && \
     cd /src/p2pool && git reset --hard ${ref} && git submodule sync && \
     mkdir build && cd build && \
     CFLAGS="-march=native -mtune=native -Ofast -Wno-error=unused-variable" CXXFLAGS="-march=native -mtune=native -Ofast -Wno-error=unused-variable" \
