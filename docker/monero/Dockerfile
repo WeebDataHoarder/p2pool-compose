@@ -182,6 +182,10 @@ RUN mkdir build && cd build && \
 
 FROM debian:bullseye-slim
 
+RUN DEBIAN_FRONTEND=noninteractive apt update && \
+    DEBIAN_FRONTEND=noninteractive apt install -y \
+    curl ca-certificates
+
 WORKDIR /var/monero
 
 COPY --from=builder /src/build/bin/monerod /monerod
