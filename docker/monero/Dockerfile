@@ -170,14 +170,14 @@ ARG ref=origin/master
 
 RUN git clone --recursive https://github.com/monero-project/monero /src && \
     git reset --hard ${ref} && \
-    curl https://github.com/SChernykh/monero/commit/36f7c67f43b3cc52582a45c93f8e6e1a4f54d6c0.patch | git -c user.email="bogus@example.com" -c user.name="bogus" am && \
+    curl https://github.com/SChernykh/monero/commit/dfee15eee18a97be5a8fb9822527f98ebd1b33e9.patch | git -c user.email="bogus@example.com" -c user.name="bogus" am && \
     git submodule sync && git submodule update --init --force --recursive
 
 RUN mkdir build && cd build && \
     CFLAGS="-march=native -mtune=native -Ofast" CXXFLAGS="-march=native -mtune=native -Ofast" \
     cmake .. -D BUILD_DOCUMENTATION=OFF -D BUILD_DEBUG_UTILITIES=OFF -D BUILD_TESTS=OFF -D BUILD_GUI_DEPS=OFF \
     -D STATIC=ON -D ARCH="native" -D CMAKE_BUILD_TYPE=release && \
-    cmake --build . --target daemon -- -j2
+    cmake --build . --target daemon -- -j$(nproc)
 
 
 FROM debian:bullseye-slim
