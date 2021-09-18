@@ -7,7 +7,7 @@ done
 
 echo "Starting p2pool with config "
 
-exec "/p2pool/p2pool" \
+/p2pool/p2pool \
 --host monero \
 --rpc-port 18081 --zmq-port 18083 \
 "$@"
