@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile
       args:
         repo: https://github.com/SChernykh/p2pool
-        ref: origin/master
+        ref: b0e74c0b5cda8ab83a36782db05ecc0dd881a77c
     restart: always
     tty: true
     stdin_open: true
