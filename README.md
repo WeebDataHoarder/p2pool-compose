@@ -38,6 +38,7 @@ This is an easy to setup installation of Monero's [p2pool](https://github.com/SC
 * _monerod_ has a custom patch applied for the special RPC and ZMQ methods p2pool requires. After [PR#7891](https://github.com/monero-project/monero/pull/7891) is merged, this patch won't be necessary. 
 * _p2pool_ stratum port is by default 3333. You can change this on _.env_, and can also point xmrig-proxy or similar to this port.
 * _p2pool_ will wait until _monerod_ is running and fully synchronized before starting.
+* config.json of p2pool can be overridden by placing a new config.json on `/p2pool/data/config.json` (via docker-compose override, or manually placing the file).
 * You can attach to _p2pool_ console via `$ docker attach p2pool-compose_p2pool_1`. Detach via `Ctrl+p, Ctrl+q` 
 * Everything restarts by default
 * If you have other questions, feel free to reach _DataHoarder_ over IRC `#monero-pow @ irc.libera.chat`
