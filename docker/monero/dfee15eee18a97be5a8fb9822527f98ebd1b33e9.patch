@@ -1,0 +1,931 @@
+From dfee15eee18a97be5a8fb9822527f98ebd1b33e9 Mon Sep 17 00:00:00 2001
+From: SChernykh <sergey.v.chernykh@gmail.com>
+Date: Thu, 26 Aug 2021 10:20:20 +0200
+Subject: [PATCH] RPC and ZeroMQ APIs to support p2pool
+
+Adds the following:
+
+- "get_miner_data" to RPC API
+- "json-miner-data" to ZeroMQ subscriber contexts
+
+Both provide the necessary data to create a custom block template. They are used by p2pool.
+
+Data provided:
+
+- major fork version
+- current height
+- previous block id
+- RandomX seed hash
+- network difficulty
+- median block weight
+- coins mined by the network so far
+- mineable mempool transactions
+---
+ docs/ZMQ.md                               |  2 +
+ src/cryptonote_basic/cryptonote_basic.h   |  1 +
+ src/cryptonote_basic/events.h             |  2 +
+ src/cryptonote_basic/fwd.h                |  1 +
+ src/cryptonote_core/blockchain.cpp        | 69 +++++++++++++++-
+ src/cryptonote_core/blockchain.h          | 39 ++++++++-
+ src/cryptonote_core/cryptonote_core.cpp   | 10 ++-
+ src/cryptonote_core/cryptonote_core.h     |  7 ++
+ src/cryptonote_core/cryptonote_tx_utils.h |  9 +++
+ src/cryptonote_core/tx_pool.cpp           | 39 ++++++++-
+ src/cryptonote_core/tx_pool.h             | 10 +++
+ src/daemon/daemon.cpp                     |  1 +
+ src/rpc/core_rpc_server.cpp               | 37 +++++++++
+ src/rpc/core_rpc_server.h                 |  2 +
+ src/rpc/core_rpc_server_commands_defs.h   | 52 +++++++++++-
+ src/rpc/zmq_pub.cpp                       | 99 +++++++++++++++++++----
+ src/rpc/zmq_pub.h                         | 14 ++++
+ src/serialization/json_object.cpp         | 22 +++++
+ src/serialization/json_object.h           |  3 +
+ utils/python-rpc/framework/daemon.py      |  8 ++
+ 20 files changed, 403 insertions(+), 24 deletions(-)
+
+diff --git a/docs/ZMQ.md b/docs/ZMQ.md
+index 9128ff2ad67..a7006f48620 100644
+--- a/docs/ZMQ.md
++++ b/docs/ZMQ.md
+@@ -25,6 +25,8 @@ allows for filtering on: (1) format, (2) context, and (3) event.
+      Includes previously unseen transactions in a block but _not_ the
+      `miner_tx`. Does not "re-publish" after a reorg. Includes `do_not_relay`
+      transactions.
++   * `miner_data` - provides the necessary data to create a custom block template
++     Available only in the `full` context.
+ 
+ The subscription topics are formatted as `format-context-event`, with prefix
+ matching supported by both Monero and ZMQ. The `format`, `context` and `event`
+diff --git a/src/cryptonote_basic/cryptonote_basic.h b/src/cryptonote_basic/cryptonote_basic.h
+index 6394a7071b3..d111f6f326d 100644
+--- a/src/cryptonote_basic/cryptonote_basic.h
++++ b/src/cryptonote_basic/cryptonote_basic.h
+@@ -49,6 +49,7 @@
+ #include "misc_language.h"
+ #include "ringct/rctTypes.h"
+ #include "device/device.hpp"
++#include "cryptonote_basic/fwd.h"
+ 
+ namespace cryptonote
+ {
+diff --git a/src/cryptonote_basic/events.h b/src/cryptonote_basic/events.h
+index 6c67422155b..3417ece8cb0 100644
+--- a/src/cryptonote_basic/events.h
++++ b/src/cryptonote_basic/events.h
+@@ -41,6 +41,8 @@ namespace cryptonote
+   {
+     cryptonote::transaction tx;
+     crypto::hash hash;
++    uint64_t blob_size;
++    uint64_t weight;
+     bool res; //!< Listeners must ignore `tx` when this is false.
+   };
+ }
+diff --git a/src/cryptonote_basic/fwd.h b/src/cryptonote_basic/fwd.h
+index d54223461a3..901ad151bdf 100644
+--- a/src/cryptonote_basic/fwd.h
++++ b/src/cryptonote_basic/fwd.h
+@@ -33,4 +33,5 @@ namespace cryptonote
+   struct block;
+   class transaction;
+   struct txpool_event;
++  struct tx_block_template_backlog_entry;
+ }
+diff --git a/src/cryptonote_core/blockchain.cpp b/src/cryptonote_core/blockchain.cpp
+index f0e6794b967..3d0e81af1b0 100644
+--- a/src/cryptonote_core/blockchain.cpp
++++ b/src/cryptonote_core/blockchain.cpp
+@@ -1238,6 +1238,12 @@ bool Blockchain::switch_to_alternative_blockchain(std::list<block_extended_info>
+     reorg_notify->notify("%s", std::to_string(split_height).c_str(), "%h", std::to_string(m_db->height()).c_str(),
+         "%n", std::to_string(m_db->height() - split_height).c_str(), "%d", std::to_string(discarded_blocks).c_str(), NULL);
+ 
++  crypto::hash prev_id;
++  if (!get_block_hash(alt_chain.back().bl, prev_id))
++    MERROR("Failed to get block hash of an alternative chain's tip");
++  else
++    send_miner_notifications(prev_id, alt_chain.back().already_generated_coins);
++
+   for (const auto& notifier : m_block_notifiers)
+   {
+     std::size_t notify_height = split_height;
+@@ -1784,6 +1790,30 @@ bool Blockchain::create_block_template(block& b, const account_public_address& m
+   return create_block_template(b, NULL, miner_address, diffic, height, expected_reward, ex_nonce, seed_height, seed_hash);
+ }
+ //------------------------------------------------------------------
++bool Blockchain::get_miner_data(uint8_t& major_version, uint64_t& height, crypto::hash& prev_id, crypto::hash& seed_hash, difficulty_type& difficulty, uint64_t& median_weight, uint64_t& already_generated_coins, std::vector<tx_block_template_backlog_entry>& tx_backlog)
++{
++  prev_id = m_db->top_block_hash(&height);
++  ++height;
++
++  major_version = m_hardfork->get_ideal_version(height);
++
++  seed_hash = crypto::null_hash;
++  if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
++  {
++    uint64_t seed_height, next_height;
++    crypto::rx_seedheights(height, &seed_height, &next_height);
++    seed_hash = get_block_id_by_height(seed_height);
++  }
++
++  difficulty = get_difficulty_for_next_block();
++  median_weight = m_current_block_cumul_weight_median;
++  already_generated_coins = m_db->get_block_already_generated_coins(height - 1);
++
++  m_tx_pool.get_block_template_backlog(tx_backlog);
++
++  return true;
++}
++//------------------------------------------------------------------
+ // for an alternate chain, get the timestamps from the main chain to complete
+ // the needed number of timestamps for the BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW.
+ bool Blockchain::complete_timestamps_vector(uint64_t start_top_height, std::vector<uint64_t>& timestamps) const
+@@ -4362,6 +4392,7 @@ bool Blockchain::handle_block_to_main_chain(const block& bl, const crypto::hash&
+   get_difficulty_for_next_block(); // just to cache it
+   invalidate_block_template_cache();
+ 
++  send_miner_notifications(id, already_generated_coins);
+ 
+   for (const auto& notifier: m_block_notifiers)
+     notifier(new_height - 1, {std::addressof(bl), 1});
+@@ -5270,7 +5301,7 @@ void Blockchain::set_user_options(uint64_t maxthreads, bool sync_on_blocks, uint
+   m_max_prepare_blocks_threads = maxthreads;
+ }
+ 
+-void Blockchain::add_block_notify(boost::function<void(std::uint64_t, epee::span<const block>)>&& notify)
++void Blockchain::add_block_notify(BlockNotifyCallback&& notify)
+ {
+   if (notify)
+   {
+@@ -5279,6 +5310,15 @@ void Blockchain::add_block_notify(boost::function<void(std::uint64_t, epee::span
+   }
+ }
+ 
++void Blockchain::add_miner_notify(MinerNotifyCallback&& notify)
++{
++  if (notify)
++  {
++    CRITICAL_REGION_LOCAL(m_blockchain_lock);
++    m_miner_notifiers.push_back(std::move(notify));
++  }
++}
++
+ void Blockchain::safesyncmode(const bool onoff)
+ {
+   /* all of this is no-op'd if the user set a specific
+@@ -5531,6 +5571,33 @@ void Blockchain::cache_block_template(const block &b, const cryptonote::account_
+   m_btc_valid = true;
+ }
+ 
++void Blockchain::send_miner_notifications(const crypto::hash &prev_id, uint64_t already_generated_coins)
++{
++  if (m_miner_notifiers.empty())
++    return;
++
++  const uint64_t height = m_db->height();
++  const uint8_t major_version = m_hardfork->get_ideal_version(height);
++  const difficulty_type diff = get_difficulty_for_next_block();
++  const uint64_t median_weight = m_current_block_cumul_weight_median;
++
++  crypto::hash seed_hash = crypto::null_hash;
++  if (m_hardfork->get_current_version() >= RX_BLOCK_VERSION)
++  {
++    uint64_t seed_height, next_height;
++    crypto::rx_seedheights(height, &seed_height, &next_height);
++    seed_hash = get_block_id_by_height(seed_height);
++  }
++
++  std::vector<tx_block_template_backlog_entry> tx_backlog;
++  m_tx_pool.get_block_template_backlog(tx_backlog);
++
++  for (const auto& notifier : m_miner_notifiers)
++  {
++    notifier(major_version, height, prev_id, seed_hash, diff, median_weight, already_generated_coins, tx_backlog);
++  }
++}
++
+ namespace cryptonote {
+ template bool Blockchain::get_transactions(const std::vector<crypto::hash>&, std::vector<transaction>&, std::vector<crypto::hash>&, bool) const;
+ template bool Blockchain::get_split_transactions_blobs(const std::vector<crypto::hash>&, std::vector<std::tuple<crypto::hash, cryptonote::blobdata, crypto::hash, cryptonote::blobdata>>&, std::vector<crypto::hash>&) const;
+diff --git a/src/cryptonote_core/blockchain.h b/src/cryptonote_core/blockchain.h
+index a0e7967de8b..9afbfbc2d9a 100644
+--- a/src/cryptonote_core/blockchain.h
++++ b/src/cryptonote_core/blockchain.h
+@@ -90,6 +90,9 @@ namespace cryptonote
+    */
+   typedef std::function<const epee::span<const unsigned char>(cryptonote::network_type network)> GetCheckpointsCallback;
+ 
++  typedef boost::function<void(uint64_t /* height */, epee::span<const block> /* blocks */)> BlockNotifyCallback;
++  typedef boost::function<void(uint8_t /* major_version */, uint64_t /* height */, const crypto::hash& /* prev_id */, const crypto::hash& /* seed_hash */, difficulty_type /* diff */, uint64_t /* median_weight */, uint64_t /* already_generated_coins */, const std::vector<tx_block_template_backlog_entry>& /* tx_backlog */)> MinerNotifyCallback;
++
+   /************************************************************************/
+   /*                                                                      */
+   /************************************************************************/
+@@ -370,6 +373,22 @@ namespace cryptonote
+     bool create_block_template(block& b, const account_public_address& miner_address, difficulty_type& di, uint64_t& height, uint64_t& expected_reward, const blobdata& ex_nonce, uint64_t &seed_height, crypto::hash &seed_hash);
+     bool create_block_template(block& b, const crypto::hash *from_block, const account_public_address& miner_address, difficulty_type& di, uint64_t& height, uint64_t& expected_reward, const blobdata& ex_nonce, uint64_t &seed_height, crypto::hash &seed_hash);
+ 
++    /**
++     * @brief gets data required to create a block template and start mining on it
++     *
++     * @param major_version current hardfork version
++     * @param height current blockchain height
++     * @param prev_id hash of the top block
++     * @param seed_hash seed hash used for RandomX initialization
++     * @param difficulty current mining difficulty
++     * @param median_weight current median block weight
++     * @param already_generated_coins current emission
++     * @param tx_backlog transactions in mempool ready to be mined
++     *
++     * @return true if block template filled in successfully, else false
++     */
++    bool get_miner_data(uint8_t& major_version, uint64_t& height, crypto::hash& prev_id, crypto::hash& seed_hash, difficulty_type& difficulty, uint64_t& median_weight, uint64_t& already_generated_coins, std::vector<tx_block_template_backlog_entry>& tx_backlog);
++
+     /**
+      * @brief checks if a block is known about with a given hash
+      *
+@@ -775,7 +794,14 @@ namespace cryptonote
+      *
+      * @param notify the notify object to call at every new block
+      */
+-    void add_block_notify(boost::function<void(std::uint64_t, epee::span<const block>)> &&notify);
++    void add_block_notify(BlockNotifyCallback&& notify);
++
++    /**
++     * @brief sets a miner notify object to call for every new block
++     *
++     * @param notify the notify object to call at every new block
++     */
++    void add_miner_notify(MinerNotifyCallback&& notify);
+ 
+     /**
+      * @brief sets a reorg notify object to call for every reorg
+@@ -1157,7 +1183,8 @@ namespace cryptonote
+        the callable object has a single `std::shared_ptr` or `std::weap_ptr`
+        internally. Whereas, the libstdc++ `std::function` will allocate. */
+ 
+-    std::vector<boost::function<void(std::uint64_t, epee::span<const block>)>> m_block_notifiers;
++    std::vector<BlockNotifyCallback> m_block_notifiers;
++    std::vector<MinerNotifyCallback> m_miner_notifiers;
+     std::shared_ptr<tools::Notify> m_reorg_notify;
+ 
+     // for prepare_handle_incoming_blocks
+@@ -1537,5 +1564,13 @@ namespace cryptonote
+      * At some point, may be used to push an update to miners
+      */
+     void cache_block_template(const block &b, const cryptonote::account_public_address &address, const blobdata &nonce, const difficulty_type &diff, uint64_t height, uint64_t expected_reward, uint64_t seed_height, const crypto::hash &seed_hash, uint64_t pool_cookie);
++
++    /**
++     * @brief sends new block notifications to ZMQ `miner_data` subscribers
++     *
++     * @param prev_id hash of new blockchain tip
++     * @param already_generated_coins total coins mined by the network so far
++     */
++    void send_miner_notifications(const crypto::hash &prev_id, uint64_t already_generated_coins);
+   };
+ }  // namespace cryptonote
+diff --git a/src/cryptonote_core/cryptonote_core.cpp b/src/cryptonote_core/cryptonote_core.cpp
+index 1da14221a60..3b7ccb157a9 100644
+--- a/src/cryptonote_core/cryptonote_core.cpp
++++ b/src/cryptonote_core/cryptonote_core.cpp
+@@ -1063,8 +1063,9 @@ namespace cryptonote
+       if (already_have[i])
+         continue;
+ 
+-      const uint64_t weight = results[i].tx.pruned ? get_pruned_transaction_weight(results[i].tx) : get_transaction_weight(results[i].tx, it->blob.size());
+-      ok &= add_new_tx(results[i].tx, results[i].hash, tx_blobs[i].blob, weight, tvc[i], tx_relay, relayed);
++      results[i].blob_size = it->blob.size();
++      results[i].weight = results[i].tx.pruned ? get_pruned_transaction_weight(results[i].tx) : get_transaction_weight(results[i].tx, it->blob.size());
++      ok &= add_new_tx(results[i].tx, results[i].hash, tx_blobs[i].blob, results[i].weight, tvc[i], tx_relay, relayed);
+ 
+       if(tvc[i].m_verifivation_failed)
+       {MERROR_VER("Transaction verification failed: " << results[i].hash);}
+@@ -1403,6 +1404,11 @@ namespace cryptonote
+     return m_blockchain_storage.create_block_template(b, prev_block, adr, diffic, height, expected_reward, ex_nonce, seed_height, seed_hash);
+   }
+   //-----------------------------------------------------------------------------------------------
++  bool core::get_miner_data(uint8_t& major_version, uint64_t& height, crypto::hash& prev_id, crypto::hash& seed_hash, difficulty_type& difficulty, uint64_t& median_weight, uint64_t& already_generated_coins, std::vector<tx_block_template_backlog_entry>& tx_backlog)
++  {
++    return m_blockchain_storage.get_miner_data(major_version, height, prev_id, seed_hash, difficulty, median_weight, already_generated_coins, tx_backlog);
++  }
++  //-----------------------------------------------------------------------------------------------
+   bool core::find_blockchain_supplement(const std::list<crypto::hash>& qblock_ids, bool clip_pruned, NOTIFY_RESPONSE_CHAIN_ENTRY::request& resp) const
+   {
+     return m_blockchain_storage.find_blockchain_supplement(qblock_ids, clip_pruned, resp);
+diff --git a/src/cryptonote_core/cryptonote_core.h b/src/cryptonote_core/cryptonote_core.h
+index 8478049f9dc..dd813733fd6 100644
+--- a/src/cryptonote_core/cryptonote_core.h
++++ b/src/cryptonote_core/cryptonote_core.h
+@@ -236,6 +236,13 @@ namespace cryptonote
+      virtual bool get_block_template(block& b, const account_public_address& adr, difficulty_type& diffic, uint64_t& height, uint64_t& expected_reward, const blobdata& ex_nonce, uint64_t &seed_height, crypto::hash &seed_hash) override;
+      virtual bool get_block_template(block& b, const crypto::hash *prev_block, const account_public_address& adr, difficulty_type& diffic, uint64_t& height, uint64_t& expected_reward, const blobdata& ex_nonce, uint64_t &seed_height, crypto::hash &seed_hash);
+ 
++     /**
++      * @copydoc Blockchain::get_miner_data
++      *
++      * @note see Blockchain::get_miner_data
++      */
++     bool get_miner_data(uint8_t& major_version, uint64_t& height, crypto::hash& prev_id, crypto::hash& seed_hash, difficulty_type& difficulty, uint64_t& median_weight, uint64_t& already_generated_coins, std::vector<tx_block_template_backlog_entry>& tx_backlog);
++
+      /**
+       * @brief called when a transaction is relayed.
+       * @note Should only be invoked from `levin_notify`.
+diff --git a/src/cryptonote_core/cryptonote_tx_utils.h b/src/cryptonote_core/cryptonote_tx_utils.h
+index 73cdd31cd2d..06412d6bf73 100644
+--- a/src/cryptonote_core/cryptonote_tx_utils.h
++++ b/src/cryptonote_core/cryptonote_tx_utils.h
+@@ -107,6 +107,15 @@ namespace cryptonote
+     END_SERIALIZE()
+   };
+ 
++  //---------------------------------------------------------------
++
++  struct tx_block_template_backlog_entry
++  {
++    crypto::hash id;
++    uint64_t weight;
++    uint64_t fee;
++  };
++
+   //---------------------------------------------------------------
+   crypto::public_key get_destination_view_key_pub(const std::vector<tx_destination_entry> &destinations, const boost::optional<cryptonote::account_public_address>& change_addr);
+   bool construct_tx(const account_keys& sender_account_keys, std::vector<tx_source_entry> &sources, const std::vector<tx_destination_entry>& destinations, const boost::optional<cryptonote::account_public_address>& change_addr, const std::vector<uint8_t> &extra, transaction& tx, uint64_t unlock_time);
+diff --git a/src/cryptonote_core/tx_pool.cpp b/src/cryptonote_core/tx_pool.cpp
+index a7e96e23ae8..84605d6f57e 100644
+--- a/src/cryptonote_core/tx_pool.cpp
++++ b/src/cryptonote_core/tx_pool.cpp
+@@ -913,6 +913,32 @@ namespace cryptonote
+     }, false, category);
+   }
+   //------------------------------------------------------------------
++  void tx_memory_pool::get_block_template_backlog(std::vector<tx_block_template_backlog_entry>& backlog, bool include_sensitive) const
++  {
++    CRITICAL_REGION_LOCAL(m_transactions_lock);
++    CRITICAL_REGION_LOCAL1(m_blockchain);
++    const relay_category category = include_sensitive ? relay_category::all : relay_category::broadcasted;
++    backlog.reserve(m_blockchain.get_txpool_tx_count(include_sensitive));
++    txpool_tx_meta_t tmp_meta;
++    m_blockchain.for_all_txpool_txes([this, &backlog, &tmp_meta](const crypto::hash &txid, const txpool_tx_meta_t &meta, const cryptonote::blobdata_ref *bd){
++      transaction tx;
++      if (!(meta.pruned ? parse_and_validate_tx_base_from_blob(*bd, tx) : parse_and_validate_tx_from_blob(*bd, tx)))
++      {
++        MERROR("Failed to parse tx from txpool");
++        // continue
++        return true;
++      }
++      tx.set_hash(txid);
++
++      tmp_meta = meta;
++
++      if (is_transaction_ready_to_go(tmp_meta, txid, *bd, tx))
++        backlog.push_back({txid, meta.weight, meta.fee});
++
++      return true;
++    }, true, category);
++  }
++  //------------------------------------------------------------------
+   void tx_memory_pool::get_transaction_stats(struct txpool_stats& stats, bool include_sensitive) const
+   {
+     CRITICAL_REGION_LOCAL(m_transactions_lock);
+@@ -1222,11 +1248,11 @@ namespace cryptonote
+     return ret;
+   }
+   //---------------------------------------------------------------------------------
+-  bool tx_memory_pool::is_transaction_ready_to_go(txpool_tx_meta_t& txd, const crypto::hash &txid, const cryptonote::blobdata &txblob, transaction &tx) const
++  bool tx_memory_pool::is_transaction_ready_to_go(txpool_tx_meta_t& txd, const crypto::hash &txid, const cryptonote::blobdata_ref& txblob, transaction &tx) const
+   {
+-    struct transction_parser
++    struct transaction_parser
+     {
+-      transction_parser(const cryptonote::blobdata &txblob, const crypto::hash &txid, transaction &tx): txblob(txblob), txid(txid), tx(tx), parsed(false) {}
++      transaction_parser(const cryptonote::blobdata_ref &txblob, const crypto::hash &txid, transaction &tx): txblob(txblob), txid(txid), tx(tx), parsed(false) {}
+       cryptonote::transaction &operator()()
+       {
+         if (!parsed)
+@@ -1238,7 +1264,7 @@ namespace cryptonote
+         }
+         return tx;
+       }
+-      const cryptonote::blobdata &txblob;
++      const cryptonote::blobdata_ref &txblob;
+       const crypto::hash &txid;
+       transaction &tx;
+       bool parsed;
+@@ -1289,6 +1315,11 @@ namespace cryptonote
+     return true;
+   }
+   //---------------------------------------------------------------------------------
++  bool tx_memory_pool::is_transaction_ready_to_go(txpool_tx_meta_t& txd, const crypto::hash &txid, const cryptonote::blobdata& txblob, transaction &tx) const
++  {
++    return is_transaction_ready_to_go(txd, txid, cryptonote::blobdata_ref{txblob.data(), txblob.size()}, tx);
++  }
++  //---------------------------------------------------------------------------------
+   bool tx_memory_pool::have_key_images(const std::unordered_set<crypto::key_image>& k_images, const transaction_prefix& tx)
+   {
+     for(size_t i = 0; i!= tx.vin.size(); i++)
+diff --git a/src/cryptonote_core/tx_pool.h b/src/cryptonote_core/tx_pool.h
+index ab2a57ea242..80b38c51d12 100644
+--- a/src/cryptonote_core/tx_pool.h
++++ b/src/cryptonote_core/tx_pool.h
+@@ -265,6 +265,15 @@ namespace cryptonote
+      */
+     void get_transaction_backlog(std::vector<tx_backlog_entry>& backlog, bool include_sensitive = false) const;
+ 
++    /**
++     * @brief get (hash, weight, fee) for all transactions in the pool - the minimum required information to create a block template
++     *
++     * @param backlog return-by-reference that data
++     * @param include_sensitive return stempool, anonymity-pool, and unrelayed txes
++     *
++     */
++    void get_block_template_backlog(std::vector<tx_block_template_backlog_entry>& backlog, bool include_sensitive = false) const;
++
+     /**
+      * @brief get a summary statistics of all transaction hashes in the pool
+      *
+@@ -540,6 +549,7 @@ namespace cryptonote
+      *
+      * @return true if the transaction is good to go, otherwise false
+      */
++    bool is_transaction_ready_to_go(txpool_tx_meta_t& txd, const crypto::hash &txid, const cryptonote::blobdata_ref &txblob, transaction&tx) const;
+     bool is_transaction_ready_to_go(txpool_tx_meta_t& txd, const crypto::hash &txid, const cryptonote::blobdata &txblob, transaction&tx) const;
+ 
+     /**
+diff --git a/src/daemon/daemon.cpp b/src/daemon/daemon.cpp
+index 99430b2b062..3f1885423c9 100644
+--- a/src/daemon/daemon.cpp
++++ b/src/daemon/daemon.cpp
+@@ -120,6 +120,7 @@ struct t_internals {
+       if (shared)
+       {
+         core.get().get_blockchain_storage().add_block_notify(cryptonote::listener::zmq_pub::chain_main{shared});
++        core.get().get_blockchain_storage().add_miner_notify(cryptonote::listener::zmq_pub::miner_data{shared});
+         core.get().set_txpool_listener(cryptonote::listener::zmq_pub::txpool_add{shared});
+       }
+     }
+diff --git a/src/rpc/core_rpc_server.cpp b/src/rpc/core_rpc_server.cpp
+index 8d8a68efb44..cd0cdad92c4 100644
+--- a/src/rpc/core_rpc_server.cpp
++++ b/src/rpc/core_rpc_server.cpp
+@@ -1861,6 +1861,43 @@ namespace cryptonote
+     return true;
+   }
+   //------------------------------------------------------------------------------------------------------------------------------
++  bool core_rpc_server::on_getminerdata(const COMMAND_RPC_GETMINERDATA::request& req, COMMAND_RPC_GETMINERDATA::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx)
++  {
++    if(!check_core_ready())
++    {
++      error_resp.code = CORE_RPC_ERROR_CODE_CORE_BUSY;
++      error_resp.message = "Core is busy";
++      return false;
++    }
++
++    crypto::hash prev_id, seed_hash;
++    difficulty_type difficulty;
++
++    std::vector<tx_block_template_backlog_entry> tx_backlog;
++    if (!m_core.get_miner_data(res.major_version, res.height, prev_id, seed_hash, difficulty, res.median_weight, res.already_generated_coins, tx_backlog))
++    {
++      error_resp.code = CORE_RPC_ERROR_CODE_INTERNAL_ERROR;
++      error_resp.message = "Internal error: failed to get miner data";
++      LOG_ERROR("Failed to get miner data");
++      return false;
++    }
++
++    res.tx_backlog.clear();
++    res.tx_backlog.reserve(tx_backlog.size());
++
++    for (const auto& entry : tx_backlog)
++    {
++      res.tx_backlog.emplace_back(COMMAND_RPC_GETMINERDATA::response::tx_backlog_entry{string_tools::pod_to_hex(entry.id), entry.weight, entry.fee});
++    }
++
++    res.prev_id = string_tools::pod_to_hex(prev_id);
++    res.seed_hash = string_tools::pod_to_hex(seed_hash);
++    res.difficulty = cryptonote::hex(difficulty);
++
++    res.status = CORE_RPC_STATUS_OK;
++    return true;
++  }
++  //------------------------------------------------------------------------------------------------------------------------------
+   bool core_rpc_server::on_add_aux_pow(const COMMAND_RPC_ADD_AUX_POW::request& req, COMMAND_RPC_ADD_AUX_POW::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx)
+   {
+     RPC_TRACKER(add_aux_pow);
+diff --git a/src/rpc/core_rpc_server.h b/src/rpc/core_rpc_server.h
+index b21e43ab0df..9bc7832997e 100644
+--- a/src/rpc/core_rpc_server.h
++++ b/src/rpc/core_rpc_server.h
+@@ -147,6 +147,7 @@ namespace cryptonote
+         MAP_JON_RPC_WE("on_getblockhash",        on_getblockhash,               COMMAND_RPC_GETBLOCKHASH)
+         MAP_JON_RPC_WE("get_block_template",     on_getblocktemplate,           COMMAND_RPC_GETBLOCKTEMPLATE)
+         MAP_JON_RPC_WE("getblocktemplate",       on_getblocktemplate,           COMMAND_RPC_GETBLOCKTEMPLATE)
++        MAP_JON_RPC_WE("get_miner_data",         on_getminerdata,               COMMAND_RPC_GETMINERDATA)
+         MAP_JON_RPC_WE("add_aux_pow",            on_add_aux_pow,                COMMAND_RPC_ADD_AUX_POW)
+         MAP_JON_RPC_WE("submit_block",           on_submitblock,                COMMAND_RPC_SUBMITBLOCK)
+         MAP_JON_RPC_WE("submitblock",            on_submitblock,                COMMAND_RPC_SUBMITBLOCK)
+@@ -228,6 +229,7 @@ namespace cryptonote
+     bool on_getblockcount(const COMMAND_RPC_GETBLOCKCOUNT::request& req, COMMAND_RPC_GETBLOCKCOUNT::response& res, const connection_context *ctx = NULL);
+     bool on_getblockhash(const COMMAND_RPC_GETBLOCKHASH::request& req, COMMAND_RPC_GETBLOCKHASH::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx = NULL);
+     bool on_getblocktemplate(const COMMAND_RPC_GETBLOCKTEMPLATE::request& req, COMMAND_RPC_GETBLOCKTEMPLATE::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx = NULL);
++    bool on_getminerdata(const COMMAND_RPC_GETMINERDATA::request& req, COMMAND_RPC_GETMINERDATA::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx = NULL);
+     bool on_add_aux_pow(const COMMAND_RPC_ADD_AUX_POW::request& req, COMMAND_RPC_ADD_AUX_POW::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx = NULL);
+     bool on_submitblock(const COMMAND_RPC_SUBMITBLOCK::request& req, COMMAND_RPC_SUBMITBLOCK::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx = NULL);
+     bool on_generateblocks(const COMMAND_RPC_GENERATEBLOCKS::request& req, COMMAND_RPC_GENERATEBLOCKS::response& res, epee::json_rpc::error& error_resp, const connection_context *ctx = NULL);
+diff --git a/src/rpc/core_rpc_server_commands_defs.h b/src/rpc/core_rpc_server_commands_defs.h
+index ff8c98b9838..1dbfc83a7d9 100644
+--- a/src/rpc/core_rpc_server_commands_defs.h
++++ b/src/rpc/core_rpc_server_commands_defs.h
+@@ -88,7 +88,7 @@ namespace cryptonote
+ // advance which version they will stop working with
+ // Don't go over 32767 for any of these
+ #define CORE_RPC_VERSION_MAJOR 3
+-#define CORE_RPC_VERSION_MINOR 7
++#define CORE_RPC_VERSION_MINOR 8
+ #define MAKE_CORE_RPC_VERSION(major,minor) (((major)<<16)|(minor))
+ #define CORE_RPC_VERSION MAKE_CORE_RPC_VERSION(CORE_RPC_VERSION_MAJOR, CORE_RPC_VERSION_MINOR)
+ 
+@@ -940,6 +940,56 @@ namespace cryptonote
+     typedef epee::misc_utils::struct_init<response_t> response;
+   };
+ 
++  struct COMMAND_RPC_GETMINERDATA
++  {
++    struct request_t: public rpc_request_base
++    {
++      BEGIN_KV_SERIALIZE_MAP()
++        KV_SERIALIZE_PARENT(rpc_request_base)
++      END_KV_SERIALIZE_MAP()
++    };
++    typedef epee::misc_utils::struct_init<request_t> request;
++
++    struct response_t: public rpc_response_base
++    {
++      uint8_t major_version;
++      uint64_t height;
++      std::string prev_id;
++      std::string seed_hash;
++      std::string difficulty;
++      uint64_t median_weight;
++      uint64_t already_generated_coins;
++
++      struct tx_backlog_entry
++      {
++        std::string id;
++        uint64_t weight;
++        uint64_t fee;
++
++        BEGIN_KV_SERIALIZE_MAP()
++          KV_SERIALIZE(id)
++          KV_SERIALIZE(weight)
++          KV_SERIALIZE(fee)
++        END_KV_SERIALIZE_MAP()
++      };
++
++      std::vector<tx_backlog_entry> tx_backlog;
++
++      BEGIN_KV_SERIALIZE_MAP()
++        KV_SERIALIZE_PARENT(rpc_response_base)
++        KV_SERIALIZE(major_version)
++        KV_SERIALIZE(height)
++        KV_SERIALIZE(prev_id)
++        KV_SERIALIZE(seed_hash)
++        KV_SERIALIZE(difficulty)
++        KV_SERIALIZE(median_weight)
++        KV_SERIALIZE(already_generated_coins)
++        KV_SERIALIZE(tx_backlog)
++      END_KV_SERIALIZE_MAP()
++    };
++    typedef epee::misc_utils::struct_init<response_t> response;
++  };
++
+   struct COMMAND_RPC_ADD_AUX_POW
+   {
+     struct aux_pow_t
+diff --git a/src/rpc/zmq_pub.cpp b/src/rpc/zmq_pub.cpp
+index eac53096844..074b552078f 100644
+--- a/src/rpc/zmq_pub.cpp
++++ b/src/rpc/zmq_pub.cpp
+@@ -48,6 +48,8 @@
+ #include "cryptonote_basic/events.h"
+ #include "misc_log_ex.h"
+ #include "serialization/json_object.h"
++#include "ringct/rctTypes.h"
++#include "cryptonote_core/cryptonote_tx_utils.h"
+ 
+ #undef MONERO_DEFAULT_LOG_CATEGORY
+ #define MONERO_DEFAULT_LOG_CATEGORY "net.zmq"
+@@ -57,6 +59,7 @@ namespace
+   constexpr const char txpool_signal[] = "tx_signal";
+ 
+   using chain_writer =  void(epee::byte_stream&, std::uint64_t, epee::span<const cryptonote::block>);
++  using miner_writer =  void(epee::byte_stream&, uint8_t, uint64_t, const crypto::hash&, const crypto::hash&, cryptonote::difficulty_type, uint64_t, uint64_t, const std::vector<cryptonote::tx_block_template_backlog_entry>&);
+   using txpool_writer = void(epee::byte_stream&, epee::span<const cryptonote::txpool_event>);
+ 
+   template<typename F>
+@@ -116,13 +119,30 @@ namespace
+     const epee::span<const cryptonote::block> blocks;
+   };
+ 
++  //! Object for miner data serialization
++  struct miner_data
++  {
++    uint8_t major_version;
++    uint64_t height;
++    const crypto::hash& prev_id;
++    const crypto::hash& seed_hash;
++    cryptonote::difficulty_type diff;
++    uint64_t median_weight;
++    uint64_t already_generated_coins;
++    const std::vector<cryptonote::tx_block_template_backlog_entry>& tx_backlog;
++  };
++
+   //! Object for "minimal" tx serialization
+   struct minimal_txpool
+   {
+     const cryptonote::transaction& tx;
++    crypto::hash hash;
++    uint64_t blob_size;
++    uint64_t weight;
++    uint64_t fee;
+   };
+ 
+-  void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const minimal_chain self)
++  void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const minimal_chain& self)
+   {
+     namespace adapt = boost::adaptors;
+ 
+@@ -143,19 +163,27 @@ namespace
+     dest.EndObject();
+   }
+ 
+-  void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const minimal_txpool self)
++  void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const miner_data& self)
+   {
+-    crypto::hash id{};
+-    std::size_t blob_size = 0;
+-    if (!get_transaction_hash(self.tx, id, blob_size))
+-    {
+-      MERROR("ZMQ/Pub failure: get_transaction_hash");
+-      return;
+-    }
++    dest.StartObject();
++    INSERT_INTO_JSON_OBJECT(dest, major_version, self.major_version);
++    INSERT_INTO_JSON_OBJECT(dest, height, self.height);
++    INSERT_INTO_JSON_OBJECT(dest, prev_id, self.prev_id);
++    INSERT_INTO_JSON_OBJECT(dest, seed_hash, self.seed_hash);
++    INSERT_INTO_JSON_OBJECT(dest, difficulty, cryptonote::hex(self.diff));
++    INSERT_INTO_JSON_OBJECT(dest, median_weight, self.median_weight);
++    INSERT_INTO_JSON_OBJECT(dest, already_generated_coins, self.already_generated_coins);
++    INSERT_INTO_JSON_OBJECT(dest, tx_backlog, self.tx_backlog);
++    dest.EndObject();
++  }
+ 
++  void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const minimal_txpool& self)
++  {
+     dest.StartObject();
+-    INSERT_INTO_JSON_OBJECT(dest, id, id);
+-    INSERT_INTO_JSON_OBJECT(dest, blob_size, blob_size);
++    INSERT_INTO_JSON_OBJECT(dest, id, self.hash);
++    INSERT_INTO_JSON_OBJECT(dest, blob_size, self.blob_size);
++    INSERT_INTO_JSON_OBJECT(dest, weight, self.weight);
++    INSERT_INTO_JSON_OBJECT(dest, fee, self.fee);
+     dest.EndObject();
+   }
+ 
+@@ -169,6 +197,11 @@ namespace
+     json_pub(buf, minimal_chain{height, blocks});
+   }
+ 
++  void json_miner_data(epee::byte_stream& buf, uint8_t major_version, uint64_t height, const crypto::hash& prev_id, const crypto::hash& seed_hash, cryptonote::difficulty_type diff, uint64_t median_weight, uint64_t already_generated_coins, const std::vector<cryptonote::tx_block_template_backlog_entry>& tx_backlog)
++  {
++    json_pub(buf, miner_data{major_version, height, prev_id, seed_hash, diff, median_weight, already_generated_coins, tx_backlog});
++  }
++
+   // boost::adaptors are in place "views" - no copy/move takes place
+   // moving transactions (via sort, etc.), is expensive!
+ 
+@@ -187,7 +220,7 @@ namespace
+     namespace adapt = boost::adaptors;
+     const auto to_minimal_tx = [](const cryptonote::txpool_event& event)
+     {
+-      return minimal_txpool{event.tx};
++      return minimal_txpool{event.tx, event.hash, event.blob_size, event.weight, cryptonote::get_tx_fee(event.tx)};
+     };
+     json_pub(buf, (txes | adapt::filtered(is_valid{}) | adapt::transformed(to_minimal_tx)));
+   }
+@@ -198,6 +231,11 @@ namespace
+     {u8"json-minimal-chain_main", json_minimal_chain}
+   }};
+ 
++  constexpr const std::array<context<miner_writer>, 1> miner_contexts =
++  {{
++    {u8"json-full-miner_data", json_miner_data},
++  }};
++
+   constexpr const std::array<context<txpool_writer>, 2> txpool_contexts =
+   {{
+     {u8"json-full-txpool_add", json_full_txpool},
+@@ -321,6 +359,7 @@ namespace cryptonote { namespace listener
+ zmq_pub::zmq_pub(void* context)
+   : relay_(),
+     chain_subs_{{0}},
++    miner_subs_{{0}},
+     txpool_subs_{{0}},
+     sync_()
+ {
+@@ -328,6 +367,7 @@ zmq_pub::zmq_pub(void* context)
+     throw std::logic_error{"ZMQ context cannot be NULL"};
+ 
+   verify_sorted(chain_contexts, "chain_contexts");
++  verify_sorted(miner_contexts, "miner_contexts");
+   verify_sorted(txpool_contexts, "txpool_contexts");
+ 
+   relay_.reset(zmq_socket(context, ZMQ_PAIR));
+@@ -348,22 +388,25 @@ bool zmq_pub::sub_request(boost::string_ref message)
+     message.remove_prefix(1);
+ 
+     const auto chain_range = get_range(chain_contexts, message);
++    const auto miner_range = get_range(miner_contexts, message);
+     const auto txpool_range = get_range(txpool_contexts, message);
+ 
+-    if (!chain_range.empty() || !txpool_range.empty())
++    if (!chain_range.empty() || !miner_range.empty() || !txpool_range.empty())
+     {
+       MDEBUG("Client " << (tag ? "subscribed" : "unsubscribed") << " to " <<
+-             chain_range.size() << " chain topic(s) and " << txpool_range.size() << " txpool topic(s)");
++             chain_range.size() << " chain topic(s), " << miner_range.size() << " miner topic(s) and " << txpool_range.size() << " txpool topic(s)");
+ 
+       const boost::lock_guard<boost::mutex> lock{sync_};
+       switch (tag)
+       {
+       case 0:
+         remove_subscriptions(chain_subs_, chain_range, chain_contexts.begin());
++        remove_subscriptions(miner_subs_, miner_range, miner_contexts.begin());
+         remove_subscriptions(txpool_subs_, txpool_range, txpool_contexts.begin());
+         return true;
+       case 1:
+         add_subscriptions(chain_subs_, chain_range, chain_contexts.begin());
++        add_subscriptions(miner_subs_, miner_range, miner_contexts.begin());
+         add_subscriptions(txpool_subs_, txpool_range, txpool_contexts.begin());
+         return true;
+       default:
+@@ -436,6 +479,25 @@ std::size_t zmq_pub::send_chain_main(const std::uint64_t height, const epee::spa
+   return 0;
+ }
+ 
++std::size_t zmq_pub::send_miner_data(uint8_t major_version, uint64_t height, const crypto::hash& prev_id, const crypto::hash& seed_hash, difficulty_type diff, uint64_t median_weight, uint64_t already_generated_coins, const std::vector<tx_block_template_backlog_entry>& tx_backlog)
++{
++  boost::unique_lock<boost::mutex> guard{sync_};
++
++  const auto subs_copy = miner_subs_;
++  guard.unlock();
++
++  for (const std::size_t sub : subs_copy)
++  {
++    if (sub)
++    {
++        auto messages = make_pubs(subs_copy, miner_contexts, major_version, height, prev_id, seed_hash, diff, median_weight, already_generated_coins, tx_backlog);
++        guard.lock();
++        return send_messages(relay_.get(), messages);
++    }
++  }
++  return 0;
++}
++
+ std::size_t zmq_pub::send_txpool_add(std::vector<txpool_event> txes)
+ {
+   if (txes.empty())
+@@ -466,6 +528,15 @@ void zmq_pub::chain_main::operator()(const std::uint64_t height, epee::span<cons
+     MERROR("Unable to send ZMQ/Pub - ZMQ server destroyed");
+ }
+ 
++void zmq_pub::miner_data::operator()(uint8_t major_version, uint64_t height, const crypto::hash& prev_id, const crypto::hash& seed_hash, difficulty_type diff, uint64_t median_weight, uint64_t already_generated_coins, const std::vector<tx_block_template_backlog_entry>& tx_backlog) const
++{
++  const std::shared_ptr<zmq_pub> self = self_.lock();
++  if (self)
++    self->send_miner_data(major_version, height, prev_id, seed_hash, diff, median_weight, already_generated_coins, tx_backlog);
++  else
++    MERROR("Unable to send ZMQ/Pub - ZMQ server destroyed");
++}
++
+ void zmq_pub::txpool_add::operator()(std::vector<cryptonote::txpool_event> txes) const
+ {
+   const std::shared_ptr<zmq_pub> self = self_.lock();
+diff --git a/src/rpc/zmq_pub.h b/src/rpc/zmq_pub.h
+index 02e6b810346..c636e1d7b37 100644
+--- a/src/rpc/zmq_pub.h
++++ b/src/rpc/zmq_pub.h
+@@ -39,6 +39,7 @@
+ #include "cryptonote_basic/fwd.h"
+ #include "net/zmq.h"
+ #include "span.h"
++#include "cryptonote_basic/difficulty.h"
+ 
+ namespace cryptonote { namespace listener
+ {
+@@ -59,6 +60,7 @@ class zmq_pub
+     net::zmq::socket relay_;
+     std::deque<std::vector<txpool_event>> txes_;
+     std::array<std::size_t, 2> chain_subs_;
++    std::array<std::size_t, 1> miner_subs_;
+     std::array<std::size_t, 2> txpool_subs_;
+     boost::mutex sync_; //!< Synchronizes counts in `*_subs_` arrays.
+ 
+@@ -88,6 +90,11 @@ class zmq_pub
+         \return Number of ZMQ messages sent to relay. */
+     std::size_t send_chain_main(std::uint64_t height, epee::span<const cryptonote::block> blocks);
+ 
++    /*! Send a `ZMQ_PUB` notification for a new miner data.
++        Thread-safe.
++        \return Number of ZMQ messages sent to relay. */
++    std::size_t send_miner_data(uint8_t major_version, uint64_t height, const crypto::hash& prev_id, const crypto::hash& seed_hash, difficulty_type diff, uint64_t median_weight, uint64_t already_generated_coins, const std::vector<tx_block_template_backlog_entry>& tx_backlog);
++
+     /*! Send a `ZMQ_PUB` notification for new tx(es) being added to the local
+         pool. Thread-safe.
+         \return Number of ZMQ messages sent to relay. */
+@@ -100,6 +107,13 @@ class zmq_pub
+       void operator()(std::uint64_t height, epee::span<const cryptonote::block> blocks) const;
+     };
+ 
++    //! Callable for `send_miner_data` with weak ownership to `zmq_pub` object.
++    struct miner_data
++    {
++      std::weak_ptr<zmq_pub> self_;
++      void operator()(uint8_t major_version, uint64_t height, const crypto::hash& prev_id, const crypto::hash& seed_hash, difficulty_type diff, uint64_t median_weight, uint64_t already_generated_coins, const std::vector<tx_block_template_backlog_entry>& tx_backlog) const;
++    };
++
+     //! Callable for `send_txpool_add` with weak ownership to `zmq_pub` object.
+     struct txpool_add
+     {
+diff --git a/src/serialization/json_object.cpp b/src/serialization/json_object.cpp
+index 28e207ff2bc..b03da1edc67 100644
+--- a/src/serialization/json_object.cpp
++++ b/src/serialization/json_object.cpp
+@@ -34,6 +34,7 @@
+ #include <type_traits>
+ 
+ #include "cryptonote_basic/cryptonote_basic_impl.h"
++#include "cryptonote_core/cryptonote_tx_utils.h"
+ 
+ // drop macro from windows.h
+ #ifdef GetObject
+@@ -1411,6 +1412,27 @@ void fromJsonValue(const rapidjson::Value& val, cryptonote::rpc::output_distribu
+   GET_FROM_JSON_OBJECT(val, dist.data.base, base);
+ }
+ 
++void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const cryptonote::tx_block_template_backlog_entry& entry)
++{
++  dest.StartObject();
++  INSERT_INTO_JSON_OBJECT(dest, id, entry.id);
++  INSERT_INTO_JSON_OBJECT(dest, weight, entry.weight);
++  INSERT_INTO_JSON_OBJECT(dest, fee, entry.fee);
++  dest.EndObject();
++}
++
++void fromJsonValue(const rapidjson::Value& val, cryptonote::tx_block_template_backlog_entry& entry)
++{
++  if (!val.IsObject())
++  {
++    throw WRONG_TYPE("json object");
++  }
++
++  GET_FROM_JSON_OBJECT(val, entry.id, id);
++  GET_FROM_JSON_OBJECT(val, entry.weight, weight);
++  GET_FROM_JSON_OBJECT(val, entry.fee, fee);
++}
++
+ }  // namespace json
+ 
+ }  // namespace cryptonote
+diff --git a/src/serialization/json_object.h b/src/serialization/json_object.h
+index 35ea990b3c7..c858faf5a5c 100644
+--- a/src/serialization/json_object.h
++++ b/src/serialization/json_object.h
+@@ -304,6 +304,9 @@ void fromJsonValue(const rapidjson::Value& val, cryptonote::rpc::DaemonInfo& inf
+ void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const cryptonote::rpc::output_distribution& dist);
+ void fromJsonValue(const rapidjson::Value& val, cryptonote::rpc::output_distribution& dist);
+ 
++void toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const cryptonote::tx_block_template_backlog_entry& entry);
++void fromJsonValue(const rapidjson::Value& val, cryptonote::tx_block_template_backlog_entry& entry);
++
+ template <typename Map>
+ typename std::enable_if<sfinae::is_map_like<Map>::value, void>::type toJsonValue(rapidjson::Writer<epee::byte_stream>& dest, const Map& map);
+ 
+diff --git a/utils/python-rpc/framework/daemon.py b/utils/python-rpc/framework/daemon.py
+index 207565e6f1b..435459f6d41 100644
+--- a/utils/python-rpc/framework/daemon.py
++++ b/utils/python-rpc/framework/daemon.py
+@@ -53,6 +53,14 @@ def getblocktemplate(self, address, prev_block = "", client = ""):
+         return self.rpc.send_json_rpc_request(getblocktemplate)
+     get_block_template = getblocktemplate
+ 
++    def get_miner_data(self):
++        get_miner_data = {
++            'method': 'get_miner_data',
++            'jsonrpc': '2.0', 
++            'id': '0'
++        }
++        return self.rpc.send_json_rpc_request(get_miner_data)
++
+     def add_aux_pow(self, blocktemplate_blob, aux_pow, client = ""):
+         add_aux_pow = {
+             'method': 'add_aux_pow',

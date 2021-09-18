@@ -1,44 +1,32 @@
 # Partially copied from https://github.com/monero-project/monero/blob/8c3c7b81097b8e260f050b223e7fa3958c14ae66/Dockerfile
 
-FROM debian:bullseye-slim AS builder
+FROM alpine:3.14 AS builder
 
-RUN DEBIAN_FRONTEND=noninteractive apt update && \
-    DEBIAN_FRONTEND=noninteractive apt install -y \
+RUN apk add --no-cache \
     git \
     ca-certificates \
     cmake \
     g++ \
     make \
-    pkg-config \
+    pkgconfig \
     graphviz \
     doxygen \
     git \
     curl \
-    libtool-bin \
+    libtool \
     autoconf \
     automake \
     bzip2 \
-    xsltproc \
+    libxslt \
     gperf \
-    unzip
+    unzip \
+    linux-headers \
+    libexecinfo-dev
 
 WORKDIR /usr/local
 
 ENV CFLAGS='-fPIC'
 ENV CXXFLAGS='-fPIC'
-
-#Cmake
-ARG CMAKE_VERSION=3.14.6
-ARG CMAKE_VERSION_DOT=v3.14
-ARG CMAKE_HASH=4e8ea11cabe459308671b476469eace1622e770317a15951d7b55a82ccaaccb9
-RUN set -ex \
-    && curl -s -O https://cmake.org/files/${CMAKE_VERSION_DOT}/cmake-${CMAKE_VERSION}.tar.gz \
-    && echo "${CMAKE_HASH}  cmake-${CMAKE_VERSION}.tar.gz" | sha256sum -c \
-    && tar -xzf cmake-${CMAKE_VERSION}.tar.gz \
-    && cd cmake-${CMAKE_VERSION} \
-    && ./configure \
-    && make -j$(nproc) \
-    && make install
 
 ## Boost
 ARG BOOST_VERSION=1_70_0
@@ -77,8 +65,7 @@ RUN set -ex \
     && ./autogen.sh \
     && ./configure --enable-static --disable-shared \
     && make -j$(nproc) \
-    && make install \
-    && ldconfig
+    && make install
 
 # zmq.hpp
 ARG CPPZMQ_VERSION=v4.4.1
@@ -114,42 +101,6 @@ RUN set -ex \
     && make check \
     && make install
 
-# Udev
-ARG UDEV_VERSION=v3.2.8
-ARG UDEV_HASH=d69f3f28348123ab7fa0ebac63ec2fd16800c5e0
-RUN set -ex \
-    && git clone https://github.com/gentoo/eudev -b ${UDEV_VERSION} \
-    && cd eudev \
-    && test `git rev-parse HEAD` = ${UDEV_HASH} || exit 1 \
-    && ./autogen.sh \
-    && ./configure --disable-gudev --disable-introspection --disable-hwdb --disable-manpages --disable-shared \
-    && make -j$(nproc) \
-    && make install
-
-# Libusb
-ARG USB_VERSION=v1.0.22
-ARG USB_HASH=0034b2afdcdb1614e78edaa2a9e22d5936aeae5d
-RUN set -ex \
-    && git clone https://github.com/libusb/libusb.git -b ${USB_VERSION} \
-    && cd libusb \
-    && test `git rev-parse HEAD` = ${USB_HASH} || exit 1 \
-    && ./autogen.sh \
-    && ./configure --disable-shared \
-    && make -j$(nproc) \
-    && make install
-
-# Hidapi
-ARG HIDAPI_VERSION=hidapi-0.8.0-rc1
-ARG HIDAPI_HASH=40cf516139b5b61e30d9403a48db23d8f915f52c
-RUN set -ex \
-    && git clone https://github.com/signal11/hidapi -b ${HIDAPI_VERSION} \
-    && cd hidapi \
-    && test `git rev-parse HEAD` = ${HIDAPI_HASH} || exit 1 \
-    && ./bootstrap \
-    && ./configure --enable-static --disable-shared \
-    && make -j$(nproc) \
-    && make install
-
 # Protobuf
 ARG PROTOBUF_VERSION=v3.7.1
 ARG PROTOBUF_HASH=6973c3a5041636c1d8dc5f7f6c8c1f3c15bc63d6
@@ -161,30 +112,29 @@ RUN set -ex \
     && ./autogen.sh \
     && ./configure --enable-static --disable-shared \
     && make -j$(nproc) \
-    && make install \
-    && ldconfig
+    && make install
 
 WORKDIR /src
 
 ARG ref=origin/master
 
 RUN git clone --recursive https://github.com/monero-project/monero /src && \
-    git reset --hard ${ref} && \
-    curl https://github.com/SChernykh/monero/commit/dfee15eee18a97be5a8fb9822527f98ebd1b33e9.patch | git -c user.email="bogus@example.com" -c user.name="bogus" am && \
+    git reset --hard ${ref}
+
+COPY dfee15eee18a97be5a8fb9822527f98ebd1b33e9.patch ./
+RUN git -c user.email="bogus@example.com" -c user.name="bogus" am < dfee15eee18a97be5a8fb9822527f98ebd1b33e9.patch && \
     git submodule sync && git submodule update --init --force --recursive
 
 RUN mkdir build && cd build && \
     CFLAGS="-march=native -mtune=native -Ofast" CXXFLAGS="-march=native -mtune=native -Ofast" \
-    cmake .. -D BUILD_DOCUMENTATION=OFF -D BUILD_DEBUG_UTILITIES=OFF -D BUILD_TESTS=OFF -D BUILD_GUI_DEPS=OFF \
+    cmake .. -D BUILD_DOCUMENTATION=OFF -D BUILD_DEBUG_UTILITIES=OFF -D BUILD_TESTS=OFF -D BUILD_GUI_DEPS=OFF -D STACK_TRACE=OFF \
     -D STATIC=ON -D ARCH="native" -D CMAKE_BUILD_TYPE=release && \
     cmake --build . --target daemon -- -j$(nproc)
 
 
-FROM debian:bullseye-slim
+FROM alpine:3.14
 
-RUN DEBIAN_FRONTEND=noninteractive apt update && \
-    DEBIAN_FRONTEND=noninteractive apt install -y \
-    curl ca-certificates
+RUN apk add --no-cache curl ca-certificates
 
 WORKDIR /var/monero
 
