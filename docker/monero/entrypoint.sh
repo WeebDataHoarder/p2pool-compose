@@ -4,7 +4,7 @@ if curl --fail --connect-timeout 10 --verbose https://gui.xmr.pm/files/block.txt
   mv /tmp/block.txt /var/monero/block.txt
 fi
 
-/monerod \
+exec "/monerod" \
 --data-dir /var/monero \
 --ban-list /var/monero/block.txt \
 --zmq-pub=tcp://0.0.0.0:18083 --rpc-bind-ip=0.0.0.0 --rpc-bind-port 18081 \

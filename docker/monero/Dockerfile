@@ -134,7 +134,7 @@ RUN mkdir build && cd build && \
 
 FROM alpine:3.14
 
-RUN apk add --no-cache curl ca-certificates
+RUN apk add --no-cache curl ca-certificates bash
 
 WORKDIR /var/monero
 
