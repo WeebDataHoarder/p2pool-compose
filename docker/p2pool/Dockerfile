@@ -38,7 +38,6 @@ RUN apk add --no-cache curl jq
 RUN mkdir -p /p2pool
 
 COPY --from=builder /src/p2pool/build/p2pool /p2pool/p2pool
-COPY --from=builder /src/p2pool/config.json /p2pool/config.json
 
 EXPOSE 3333 37889
 
