@@ -33,11 +33,11 @@ RUN mkdir build && cd build && \
 
 FROM alpine:3.14
 
-RUN apk add --no-cache curl jq
+RUN apk add --no-cache curl jq bash
 
 RUN mkdir -p /p2pool
 
-COPY --from=builder /src/p2pool/build/p2pool /p2pool/p2pool bash
+COPY --from=builder /src/p2pool/build/p2pool /p2pool/p2pool
 
 EXPOSE 3333 37889
 
