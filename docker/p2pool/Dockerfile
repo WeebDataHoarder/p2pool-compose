@@ -1,8 +1,6 @@
-FROM debian:bullseye-slim AS builder
+FROM alpine:3.14 AS builder
 
-RUN DEBIAN_FRONTEND=noninteractive apt update && \
-    DEBIAN_FRONTEND=noninteractive apt install -y \
-    git gcc g++ cmake libtool-bin
+RUN apk add --no-cache git gcc g++ cmake make libtool
 
 ARG ref=origin/master
 ARG repo=https://github.com/SChernykh/p2pool
@@ -23,19 +21,19 @@ RUN mkdir build && cd build && \
 
 WORKDIR /src/p2pool
 COPY *.patch ./
-RUN git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0001-Add-dl-to-target_link_libraries.patch && \
-    git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0002-Remove-libsodium-from-target_link_libraries.patch
+#RUN git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0001-Add-dl-to-target_link_libraries.patch && \
+#    git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0002-Remove-libsodium-from-target_link_libraries.patch
+RUN git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0002-Remove-libsodium-from-target_link_libraries.patch
+
 
 RUN mkdir build && cd build && \
     CFLAGS="-march=native -mtune=native -Ofast -Wno-error=unused-variable" CXXFLAGS="-march=native -mtune=native -Ofast -Wno-error=unused-variable" \
     cmake .. -DSTATIC_LINUX_BINARY=ON && \
     make -j$(nproc)
 
-FROM debian:bullseye-slim
+FROM alpine:3.14
 
-RUN DEBIAN_FRONTEND=noninteractive apt update && \
-    DEBIAN_FRONTEND=noninteractive apt install -y \
-    curl jq
+RUN apk add --no-cache curl jq
 
 RUN mkdir -p /p2pool
 
