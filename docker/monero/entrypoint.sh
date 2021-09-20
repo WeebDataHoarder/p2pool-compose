@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if curl --fail --connect-timeout 10 --verbose https://gui.xmr.pm/files/block.txt -O /tmp/block.txt; then
+if curl --fail --connect-timeout 10 --verbose https://gui.xmr.pm/files/block.txt --output /tmp/block.txt; then
   mv /tmp/block.txt /var/monero/block.txt
 fi
 
