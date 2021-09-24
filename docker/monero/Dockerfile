@@ -119,10 +119,7 @@ WORKDIR /src
 ARG ref=origin/master
 
 RUN git clone --recursive https://github.com/monero-project/monero /src && \
-    git reset --hard ${ref}
-
-COPY dfee15eee18a97be5a8fb9822527f98ebd1b33e9.patch ./
-RUN git -c user.email="bogus@example.com" -c user.name="bogus" am < dfee15eee18a97be5a8fb9822527f98ebd1b33e9.patch && \
+    git reset --hard ${ref} && \
     git submodule sync && git submodule update --init --force --recursive
 
 RUN mkdir build && cd build && \
