@@ -1,7 +1,7 @@
 #!/bin/bash
 
-if curl --fail --connect-timeout 10 --verbose https://gui.xmr.pm/files/block.txt --output /tmp/block.txt; then
-  mv /tmp/block.txt /var/monero/block.txt
+if ! curl --fail --connect-timeout 10 --verbose https://gui.xmr.pm/files/block.txt --output /var/monero/block.txt; then
+  touch /var/monero/block.txt
 fi
 
 exec "/monerod" \
