@@ -44,7 +44,7 @@ This is an easy to setup installation of Monero's [p2pool](https://github.com/SC
 
 ## TODO
 * logrotate for p2pool
-  * However, you can set this up yourself directly pointing to file `/var/lib/docker/volumes/monero-pool_p2pool/_data/p2pool.log`
+  * However, you can set this up yourself directly pointing to file `/var/lib/docker/volumes/p2pool-compose_p2pool/_data/p2pool.log`
 
 ## Contribution
 There is no dev fee. p2pool has no infrastructure. Send donations if you like, or don't.
