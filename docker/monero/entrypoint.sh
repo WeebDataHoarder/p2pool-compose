@@ -10,7 +10,7 @@ exec "/monerod" \
 --zmq-pub=tcp://0.0.0.0:18083 --rpc-bind-ip=0.0.0.0 --rpc-bind-port 18081 \
 --non-interactive --confirm-external-bind --restricted-rpc --allow-local-ip --no-igd \
 --fast-block-sync 1 --prep-blocks-threads $(nproc) --sync-pruned-blocks --prune-blockchain --check-updates disabled \
---enforce-dns-checkpointing \
+--disable-dns-checkpoints \
 --in-peers 64 \
 --out-peers 128 \
 --add-priority-node node.supportxmr.com:18080 \
