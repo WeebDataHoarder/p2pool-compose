@@ -29,9 +29,9 @@ ENV CFLAGS='-fPIC'
 ENV CXXFLAGS='-fPIC'
 
 ## Boost
-ARG BOOST_VERSION=1_70_0
-ARG BOOST_VERSION_DOT=1.70.0
-ARG BOOST_HASH=430ae8354789de4fd19ee52f3b1f739e1fba576f0aded0897c3c2bc00fb38778
+ARG BOOST_VERSION=1_77_0
+ARG BOOST_VERSION_DOT=1.77.0
+ARG BOOST_HASH=fc9f85fc030e233142908241af7a846e60630aa7388de9a5fafb1f3a26840854
 RUN set -ex \
     && curl -s -L -o  boost_${BOOST_VERSION}.tar.bz2 https://downloads.sourceforge.net/project/boost/boost/${BOOST_VERSION_DOT}/boost_${BOOST_VERSION}.tar.bz2 \
     && echo "${BOOST_HASH}  boost_${BOOST_VERSION}.tar.bz2" | sha256sum -c \
@@ -42,8 +42,8 @@ RUN set -ex \
 ENV BOOST_ROOT /usr/local/boost_${BOOST_VERSION}
 
 # OpenSSL
-ARG OPENSSL_VERSION=1.1.1i
-ARG OPENSSL_HASH=e8be6a35fe41d10603c3cc635e93289ed00bf34b79671a3a4de64fcee00d5242
+ARG OPENSSL_VERSION=1.1.1l
+ARG OPENSSL_HASH=0b7a3e5e59c34827fe0c3a74b7ec8baef302b98fa80088d7f9153aa16fa76bd1
 RUN set -ex \
     && curl -s -O https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz \
     && echo "${OPENSSL_HASH}  openssl-${OPENSSL_VERSION}.tar.gz" | sha256sum -c \
@@ -56,8 +56,8 @@ RUN set -ex \
 ENV OPENSSL_ROOT_DIR=/usr/local/openssl-${OPENSSL_VERSION}
 
 # ZMQ
-ARG ZMQ_VERSION=v4.3.2
-ARG ZMQ_HASH=a84ffa12b2eb3569ced199660bac5ad128bff1f0
+ARG ZMQ_VERSION=v4.3.4
+ARG ZMQ_HASH=4097855ddaaa65ed7b5e8cb86d143842a594eebd
 RUN set -ex \
     && git clone https://github.com/zeromq/libzmq.git -b ${ZMQ_VERSION} \
     && cd libzmq \
@@ -68,8 +68,8 @@ RUN set -ex \
     && make install
 
 # zmq.hpp
-ARG CPPZMQ_VERSION=v4.4.1
-ARG CPPZMQ_HASH=f5b36e563598d48fcc0d82e589d3596afef945ae
+ARG CPPZMQ_VERSION=v4.8.1
+ARG CPPZMQ_HASH=dd663fafd830466d34cba278c2cfd0f92eb67614
 RUN set -ex \
     && git clone https://github.com/zeromq/cppzmq.git -b ${CPPZMQ_VERSION} \
     && cd cppzmq \
@@ -77,8 +77,8 @@ RUN set -ex \
     && mv *.hpp /usr/local/include
 
 # Readline
-ARG READLINE_VERSION=8.0
-ARG READLINE_HASH=e339f51971478d369f8a053a330a190781acb9864cf4c541060f12078948e461
+ARG READLINE_VERSION=8.1
+ARG READLINE_HASH=f8ceb4ee131e3232226a17f51b164afc46cd0b9e6cef344be87c65962cb82b02
 RUN set -ex \
     && curl -s -O https://ftp.gnu.org/gnu/readline/readline-${READLINE_VERSION}.tar.gz \
     && echo "${READLINE_HASH}  readline-${READLINE_VERSION}.tar.gz" | sha256sum -c \
@@ -102,8 +102,8 @@ RUN set -ex \
     && make install
 
 # Protobuf
-ARG PROTOBUF_VERSION=v3.7.1
-ARG PROTOBUF_HASH=6973c3a5041636c1d8dc5f7f6c8c1f3c15bc63d6
+ARG PROTOBUF_VERSION=v3.18.1
+ARG PROTOBUF_HASH=0dab03ba7bc438d7ba3eac2b2c1eb39ed520f928
 RUN set -ex \
     && git clone https://github.com/protocolbuffers/protobuf -b ${PROTOBUF_VERSION} \
     && cd protobuf \

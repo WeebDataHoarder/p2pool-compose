@@ -11,8 +11,8 @@ exec "/monerod" \
 --non-interactive --confirm-external-bind --restricted-rpc --allow-local-ip --no-igd \
 --fast-block-sync 1 --prep-blocks-threads $(nproc) --sync-pruned-blocks --prune-blockchain --check-updates disabled \
 --disable-dns-checkpoints \
---in-peers 64 \
---out-peers 128 \
+--in-peers 32 \
+--out-peers 32 \
 --add-priority-node node.supportxmr.com:18080 \
 --add-priority-node opennode.xmr-tw.org:18080 \
 --add-priority-node node.moneroworld.com:18080 \
