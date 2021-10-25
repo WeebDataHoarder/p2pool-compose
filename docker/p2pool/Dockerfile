@@ -5,9 +5,9 @@ RUN apk add --no-cache git gcc g++ cmake make libtool
 ARG ref=origin/master
 ARG repo=https://github.com/SChernykh/p2pool
 
-RUN git clone --recursive ${repo} /src/p2pool
+RUN git clone ${repo} /src/p2pool
 WORKDIR /src/p2pool
-RUN git reset --hard ${ref} && git submodule sync
+RUN git reset --hard ${ref} && git submodule sync && git submodule update --init --recursive
 
 WORKDIR /src/p2pool/external/src/libzmq
 RUN mkdir build && cd build && \
