@@ -16,7 +16,7 @@ services:
       dockerfile: Dockerfile
       args:
         repo: https://github.com/SChernykh/p2pool
-        ref: f17c23528add7707897de8308b90e46ff3ff754f
+        ref: 2071a24a9fca0417e7de00d6a6a2d575294d05fd
     restart: always
     tty: true
     stdin_open: true
@@ -43,7 +43,7 @@ services:
       context: docker/monero
       dockerfile: Dockerfile
       args:
-        ref: 2243318000b8fa746a4d874ad62984d6ce25d494
+        ref: fce167d7cc53bb65fa13a6326464924c1d547dff
     restart: always
     read_only: true
     security_opt:
