@@ -1,6 +1,6 @@
 # Partially copied from https://github.com/monero-project/monero/blob/8c3c7b81097b8e260f050b223e7fa3958c14ae66/Dockerfile
 
-FROM alpine:3.14 AS builder
+FROM alpine:3.16 AS builder
 
 RUN apk add --no-cache \
     git \
@@ -129,7 +129,7 @@ RUN mkdir build && cd build && \
     cmake --build . --target daemon -- -j$(nproc)
 
 
-FROM alpine:3.14
+FROM alpine:3.16
 
 RUN apk add --no-cache curl ca-certificates bash
 
