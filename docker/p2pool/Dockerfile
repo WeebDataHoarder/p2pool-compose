@@ -1,4 +1,4 @@
-FROM alpine:3.14 AS builder
+FROM alpine:3.16 AS builder
 
 RUN apk add --no-cache git gcc g++ cmake make libtool
 
@@ -26,7 +26,7 @@ RUN mkdir build && cd build && \
     cmake .. -DSTATIC_BINARY=ON && \
     make -j$(nproc)
 
-FROM alpine:3.14
+FROM alpine:3.16
 
 RUN apk add --no-cache curl jq bash
 
