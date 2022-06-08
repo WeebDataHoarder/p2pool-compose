@@ -43,7 +43,7 @@ services:
       context: docker/monero
       dockerfile: Dockerfile
       args:
-        ref: fce167d7cc53bb65fa13a6326464924c1d547dff
+        ref: 424e4de16b98506170db7b0d7d87a79ccf541744
     restart: always
     read_only: true
     security_opt:
