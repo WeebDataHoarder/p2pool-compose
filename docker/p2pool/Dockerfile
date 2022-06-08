@@ -20,15 +20,10 @@ RUN mkdir build && cd build && \
     make -j$(nproc)
 
 WORKDIR /src/p2pool
-COPY *.patch ./
-#RUN git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0001-Add-dl-to-target_link_libraries.patch && \
-#    git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0002-Remove-libsodium-from-target_link_libraries.patch
-RUN git -c user.email="bogus@example.com" -c user.name="bogus" am --3way --ignore-whitespace < 0002-Remove-libsodium-from-target_link_libraries.patch
-
 
 RUN mkdir build && cd build && \
     CFLAGS="-march=native -mtune=native -Ofast -Wno-error=unused-variable" CXXFLAGS="-march=native -mtune=native -Ofast -Wno-error=unused-variable" \
-    cmake .. -DSTATIC_LINUX_BINARY=ON && \
+    cmake .. -DSTATIC_BINARY=ON && \
     make -j$(nproc)
 
 FROM alpine:3.14
