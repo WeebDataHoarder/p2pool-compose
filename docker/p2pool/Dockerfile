@@ -1,6 +1,6 @@
 FROM alpine:3.16 AS builder
 
-RUN apk add --no-cache git gcc g++ cmake make libtool
+RUN apk add --no-cache git gcc g++ cmake make libtool autoconf automake
 
 ARG ref=origin/master
 ARG repo=https://github.com/SChernykh/p2pool
@@ -11,12 +11,17 @@ RUN git reset --hard ${ref} && git submodule sync && git submodule update --init
 
 WORKDIR /src/p2pool/external/src/libzmq
 RUN mkdir build && cd build && \
-    cmake .. -DENABLE_WS=OFF -DWITH_TLS=OFF -DENABLE_CURVE=OFF && \
+    cmake .. -DENABLE_WS=OFF -DENABLE_CURVE=OFF && \
     make -j$(nproc)
 
 WORKDIR /src/p2pool/external/src/libuv
 RUN mkdir build && cd build && \
     cmake .. && \
+    make -j$(nproc)
+
+WORKDIR /src/p2pool/external/src/curl
+RUN autoreconf -vi && \
+    ./configure --without-ssl && \
     make -j$(nproc)
 
 WORKDIR /src/p2pool
