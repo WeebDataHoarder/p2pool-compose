@@ -21,6 +21,7 @@ RUN apk add --no-cache \
     gperf \
     unzip \
     linux-headers \
+    expat-dev \
     libexecinfo-dev
 
 WORKDIR /usr/local
@@ -110,6 +111,18 @@ RUN set -ex \
     && test `git rev-parse HEAD` = ${PROTOBUF_HASH} || exit 1 \
     && git submodule update --init --recursive \
     && ./autogen.sh \
+    && ./configure --enable-static --disable-shared \
+    && make -j$(nproc) \
+    && make install
+
+# Unbound
+ARG UNBOUND_VERSION=release-1.16.2
+ARG UNBOUND_HASH=cbed768b8ff9bfcf11089a5f1699b7e5707f1ea5
+RUN set -ex \
+    && git clone https://github.com/NLnetLabs/unbound.git -b ${UNBOUND_VERSION} \
+    && cd unbound \
+    && test `git rev-parse HEAD` = ${UNBOUND_HASH} || exit 1 \
+    && git submodule update --init --recursive \
     && ./configure --enable-static --disable-shared \
     && make -j$(nproc) \
     && make install
