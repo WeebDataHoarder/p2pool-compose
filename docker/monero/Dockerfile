@@ -129,7 +129,7 @@ RUN set -ex \
 
 WORKDIR /src
 
-ARG ref=origin/master
+ARG ref=727bc5b6878170332bf2d838f2c60d1c8dc685c8
 
 RUN git clone --recursive https://github.com/monero-project/monero /src && \
     git reset --hard ${ref} && \
