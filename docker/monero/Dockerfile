@@ -1,6 +1,6 @@
 # Partially copied from https://github.com/monero-project/monero/blob/8c3c7b81097b8e260f050b223e7fa3958c14ae66/Dockerfile
 
-FROM alpine:3.16 AS builder
+FROM alpine:3.16.2 AS builder
 
 RUN apk add --no-cache \
     git \
@@ -21,6 +21,7 @@ RUN apk add --no-cache \
     gperf \
     unzip \
     linux-headers \
+    expat-dev \
     libexecinfo-dev
 
 WORKDIR /usr/local
@@ -114,9 +115,21 @@ RUN set -ex \
     && make -j$(nproc) \
     && make install
 
+# Unbound
+ARG UNBOUND_VERSION=release-1.16.2
+ARG UNBOUND_HASH=cbed768b8ff9bfcf11089a5f1699b7e5707f1ea5
+RUN set -ex \
+    && git clone https://github.com/NLnetLabs/unbound.git -b ${UNBOUND_VERSION} \
+    && cd unbound \
+    && test `git rev-parse HEAD` = ${UNBOUND_HASH} || exit 1 \
+    && git submodule update --init --recursive \
+    && ./configure --enable-static --disable-shared \
+    && make -j$(nproc) \
+    && make install
+
 WORKDIR /src
 
-ARG ref=origin/master
+ARG ref=727bc5b6878170332bf2d838f2c60d1c8dc685c8
 
 RUN git clone --recursive https://github.com/monero-project/monero /src && \
     git reset --hard ${ref} && \
@@ -129,7 +142,7 @@ RUN mkdir build && cd build && \
     cmake --build . --target daemon -- -j$(nproc)
 
 
-FROM alpine:3.16
+FROM alpine:3.16.2
 
 RUN apk add --no-cache curl ca-certificates bash
 

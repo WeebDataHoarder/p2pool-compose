@@ -1,4 +1,4 @@
-FROM alpine:3.16 AS builder
+FROM alpine:3.16.2 AS builder
 
 RUN apk add --no-cache git gcc g++ cmake make libtool autoconf automake
 
@@ -31,7 +31,7 @@ RUN mkdir build && cd build && \
     cmake .. -DSTATIC_BINARY=ON && \
     make -j$(nproc)
 
-FROM alpine:3.16
+FROM alpine:3.16.2
 
 RUN apk add --no-cache curl jq bash
 
