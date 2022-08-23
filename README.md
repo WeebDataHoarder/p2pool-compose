@@ -54,3 +54,7 @@ There is no dev fee. p2pool has no infrastructure. Send donations if you like, o
 Donate hashrate to the [P2Pool Seed Node we run](https://p2pool-seed.northeurope.cloudapp.azure.com), at stratum server `p2pool-seed.northeurope.cloudapp.azure.com:3333`
 
 Think about donating to [p2pool's original author](https://github.com/SChernykh/p2pool#donations) as well. 
+
+### Infrastructure model
+
+![Infrastructure model](.infragenie/infrastructure_model.png)
